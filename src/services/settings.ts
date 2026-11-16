@@ -3,13 +3,22 @@ import type { TtsVoice } from './api/speech.js'
 import { normalizeLocation, type UserLocation } from './location.js'
 
 export type Locale = 'zh-CN' | 'en-US'
+export type ApiProvider = 'deepseek' | 'openai'
 
 /** 主题偏好；默认跟随系统 */
 export type ThemePreference = 'light' | 'dark' | 'system'
 
-/** 本机设置，存 localStorage：API Key、语言、主题、位置、朗读音色、深度思考与智能搜索开关、侧边栏收起状态 */
+export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1'
+export const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini'
+
+/** 本机设置，存 localStorage：接口、API Key、语言、主题、位置、朗读音色与对话开关 */
 type Settings = {
+  apiProvider: ApiProvider
+  /** DeepSeek API Key，保留原有存储键以兼容旧版本 */
   apiKey: string | null
+  openaiApiKey: string | null
+  openaiBaseUrl: string
+  openaiModel: string
   locale: Locale
   themePreference: ThemePreference
   location: UserLocation | null
@@ -20,7 +29,11 @@ type Settings = {
 }
 
 const KEYS = {
+  apiProvider: 'chat-demo:api-provider',
   apiKey: 'chat-demo:api-key',
+  openaiApiKey: 'chat-demo:openai-api-key',
+  openaiBaseUrl: 'chat-demo:openai-base-url',
+  openaiModel: 'chat-demo:openai-model',
   locale: 'chat-demo:locale',
   location: 'chat-demo:location',
   themePreference: 'chat-demo:theme-preference',
@@ -88,7 +101,12 @@ const initialThemePreference = (): ThemePreference => {
 const initialTtsVoice = (): TtsVoice => (read(KEYS.ttsVoice) === 'tide' ? 'tide' : 'stella')
 
 export const useSettings = create<Settings>(() => ({
+  // 这个衍生版本默认使用 OpenAI 兼容接口；切回 DeepSeek 后仍保留各自独立的 Key。
+  apiProvider: read(KEYS.apiProvider) === 'deepseek' ? 'deepseek' : 'openai',
   apiKey: read(KEYS.apiKey),
+  openaiApiKey: read(KEYS.openaiApiKey),
+  openaiBaseUrl: read(KEYS.openaiBaseUrl) ?? DEFAULT_OPENAI_BASE_URL,
+  openaiModel: read(KEYS.openaiModel) ?? DEFAULT_OPENAI_MODEL,
   locale: initialLocale(),
   location: initialLocation(),
   themePreference: initialThemePreference(),
@@ -97,6 +115,22 @@ export const useSettings = create<Settings>(() => ({
   search: read(KEYS.search) === 'true',
   siderCollapsed: read(KEYS.siderCollapsed) === 'true',
 }))
+
+export const getActiveApiKey = (
+  settings: Pick<Settings, 'apiProvider' | 'apiKey' | 'openaiApiKey'>
+) => (settings.apiProvider === 'openai' ? settings.openaiApiKey : settings.apiKey)
+
+export const hasApiConfiguration = (settings: Settings) =>
+  Boolean(
+    getActiveApiKey(settings)?.trim() &&
+    (settings.apiProvider === 'deepseek' ||
+      (settings.openaiBaseUrl.trim() && settings.openaiModel.trim()))
+  )
+
+export const setApiProvider = (apiProvider: ApiProvider) => {
+  write(KEYS.apiProvider, apiProvider)
+  useSettings.setState({ apiProvider })
+}
 
 export const setLocale = (locale: Locale) => {
   write(KEYS.locale, locale)
@@ -122,6 +156,21 @@ export const setTtsVoice = (ttsVoice: TtsVoice) => {
 export const setApiKey = (apiKey: string | null) => {
   write(KEYS.apiKey, apiKey)
   useSettings.setState({ apiKey })
+}
+
+export const setOpenAiApiKey = (openaiApiKey: string | null) => {
+  write(KEYS.openaiApiKey, openaiApiKey)
+  useSettings.setState({ openaiApiKey })
+}
+
+export const setOpenAiBaseUrl = (openaiBaseUrl: string) => {
+  write(KEYS.openaiBaseUrl, openaiBaseUrl)
+  useSettings.setState({ openaiBaseUrl })
+}
+
+export const setOpenAiModel = (openaiModel: string) => {
+  write(KEYS.openaiModel, openaiModel)
+  useSettings.setState({ openaiModel })
 }
 
 export const setThinking = (thinking: boolean) => {

@@ -32,6 +32,7 @@ import { useVoiceInput } from './useVoiceInput.js'
 import { VoiceButton } from './VoiceButton.js'
 import { Spectrum } from './Spectrum.js'
 import { useTranslate } from '../../i18n/index.js'
+import { isFreeApiBaseUrl } from '../../services/api/client.js'
 import styles from './ChatInput.module.css'
 
 /** 输入框：自适应高度的文本框 + 文件 + 深度思考与智能搜索开关 + 语音输入 + 发送 / 停止 */
@@ -53,6 +54,9 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   const importingHistory = useChatStore((state) => state.importingHistory)
   const isMobile = useIsMobile()
   const search = useSettings((state) => state.search)
+  const openAi = useSettings((state) => state.apiProvider === 'openai')
+  const openAiBaseUrl = useSettings((state) => state.openaiBaseUrl)
+  const searchAvailable = !openAi || isFreeApiBaseUrl(openAiBaseUrl)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const togglesRef = useRef<HTMLDivElement>(null)
@@ -75,6 +79,10 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   }, [t])
 
   const acceptFiles = (files: File[]) => {
+    if (openAi) {
+      showToast({ key: 'openAiTextOnly', type: 'error' })
+      return
+    }
     if (files.length === 0 || useChatStore.getState().importingHistory || !ensureApiKey()) {
       return
     }
@@ -85,11 +93,13 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   }
   const retryFile = useCallback(
     (id: string) => {
-      if (!useChatStore.getState().importingHistory && ensureApiKey()) {
+      if (openAi) {
+        showToast({ key: 'openAiTextOnly', type: 'error' })
+      } else if (!useChatStore.getState().importingHistory && ensureApiKey()) {
         retryDraftAttachment(sessionId, id, useSettings.getState().apiKey ?? '')
       }
     },
-    [sessionId]
+    [sessionId, openAi]
   )
   const removeFile = useCallback(
     (id: string) => {
@@ -200,66 +210,74 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
         </div>
       </div>
       <div className={styles.functionRow}>
-        {/* 深度思考 / 智能搜索开关，tooltip 在按钮上方 */}
+        {/* DeepSeek 思考开关；DeepSeek 与 FreeAPI 均可使用智能搜索。 */}
         <div ref={togglesRef} className={styles.toggles}>
-          <Tooltip content={t('deactivatedThinkTooltip')}>
-            <button
-              type="button"
-              className={clsx(styles.toggle, thinking && styles.selected)}
-              aria-label={t('thinkingSwitch')}
-              aria-pressed={thinking}
-              onClick={() => setThinking(!thinking)}
-            >
-              <IconThinkOutline14 />
-              <span className={styles.toggleLabel}>{t('thinkingSwitch')}</span>
-            </button>
-          </Tooltip>
-          <Tooltip content={t('deactivatedSearchTooltip')}>
-            <button
-              type="button"
-              className={clsx(styles.toggle, search && styles.selected)}
-              aria-label={t('search')}
-              aria-pressed={search}
-              onClick={() => setSearch(!search)}
-            >
-              <IconGlobeLanguageOutline14 />
-              <span className={styles.toggleLabel}>{t('search')}</span>
-            </button>
-          </Tooltip>
+          {!openAi ? (
+            <Tooltip content={t('deactivatedThinkTooltip')}>
+              <button
+                type="button"
+                className={clsx(styles.toggle, thinking && styles.selected)}
+                aria-label={t('thinkingSwitch')}
+                aria-pressed={thinking}
+                onClick={() => setThinking(!thinking)}
+              >
+                <IconThinkOutline14 />
+                <span className={styles.toggleLabel}>{t('thinkingSwitch')}</span>
+              </button>
+            </Tooltip>
+          ) : null}
+          {searchAvailable ? (
+            <Tooltip content={t('deactivatedSearchTooltip')}>
+              <button
+                type="button"
+                className={clsx(styles.toggle, search && styles.selected)}
+                aria-label={t('search')}
+                aria-pressed={search}
+                onClick={() => setSearch(!search)}
+              >
+                <IconGlobeLanguageOutline14 />
+                <span className={styles.toggleLabel}>{t('search')}</span>
+              </button>
+            </Tooltip>
+          ) : null}
         </div>
         <div className={styles.right}>
-          <VoiceButton
-            status={voice.status}
-            disabled={!voice.available}
-            seconds={voice.seconds}
-            onClick={() => {
-              if (
-                voice.status !== 'idle' ||
-                (!useChatStore.getState().importingHistory && ensureApiKey())
-              ) {
-                void voice.toggle()
-              }
-            }}
-          />
-          <IconButton
-            size="m"
-            tone="primary"
-            icon={<IconPaperclipOutline16 />}
-            tooltip={t('uploadFile')}
-            disabled={importingHistory}
-            onClick={() => ensureApiKey() && fileInputRef.current?.click()}
-          />
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            hidden
-            accept={ACCEPT}
-            onChange={(event) => {
-              acceptFiles(Array.from(event.target.files ?? []))
-              event.target.value = ''
-            }}
-          />
+          {!openAi ? (
+            <>
+              <VoiceButton
+                status={voice.status}
+                disabled={!voice.available}
+                seconds={voice.seconds}
+                onClick={() => {
+                  if (
+                    voice.status !== 'idle' ||
+                    (!useChatStore.getState().importingHistory && ensureApiKey())
+                  ) {
+                    void voice.toggle()
+                  }
+                }}
+              />
+              <IconButton
+                size="m"
+                tone="primary"
+                icon={<IconPaperclipOutline16 />}
+                tooltip={t('uploadFile')}
+                disabled={importingHistory}
+                onClick={() => ensureApiKey() && fileInputRef.current?.click()}
+              />
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                hidden
+                accept={ACCEPT}
+                onChange={(event) => {
+                  acceptFiles(Array.from(event.target.files ?? []))
+                  event.target.value = ''
+                }}
+              />
+            </>
+          ) : null}
           {streaming && sessionId ? (
             <button
               type="button"

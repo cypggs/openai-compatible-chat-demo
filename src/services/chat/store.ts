@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { createId } from '../../utils/id.js'
-import { ApiError, streamMessage } from '../api/client.js'
+import { ApiError, streamMessage, streamOpenAiMessage } from '../api/client.js'
 import type { ChatModel, CreateMessageRequest } from '../api/types.js'
 import { extractFileIds, getFileErrorCode, isRetryableApiError } from '../api/errors.js'
 import { cancelUpload, describeUploadError, uploadAttachment, useUploads } from '../attachments.js'
@@ -32,10 +32,15 @@ import {
   type UserMessage,
 } from './types.js'
 
-/** deepseek-flash 同时支持深度思考与图片输入 */
+/** deepseek-flash 同时支持深度思考与图片输入；OpenAI 模式使用设置里的模型 ID。 */
 const MODEL: ChatModel = 'deepseek-flash'
-/** 所有生成请求统一携带的助手身份说明 */
+const currentModel = (): ChatModel => {
+  const settings = useSettings.getState()
+  return settings.apiProvider === 'openai' ? settings.openaiModel.trim() : MODEL
+}
+/** DeepSeek 保留原助手身份；自定义 OpenAI 兼容服务使用中性提示。 */
 const SYSTEM_PROMPT = '该助手为DeepSeek，由深度求索公司创造。'
+const OPENAI_SYSTEM_PROMPT = 'You are a helpful AI assistant.'
 /** 保留最近打开的详情；当前会话、生成中及尚未成功保存的会话不淘汰。 */
 const SESSION_CACHE_LIMIT = 5
 /** 安全审核固定开启，所有请求都走扩展模式 */
@@ -260,7 +265,7 @@ const createReply = (): AssistantMessage => {
     id: createId(),
     role: 'assistant',
     createdAt: Date.now(),
-    model: MODEL,
+    model: currentModel(),
     thinking,
     search,
     prefix: true,
@@ -708,8 +713,8 @@ export const continueReply = (sessionId: string, messageId: string) => {
   const { thinking, search } = useSettings.getState()
   const reply: AssistantMessage = {
     ...previous,
-    // 未记录请求配置的回复，续写时使用默认模型和当前开关。
-    model: previous.model ?? MODEL,
+    // 未记录请求配置的回复，续写时使用当前模型和开关。
+    model: previous.model ?? currentModel(),
     thinking: previous.thinking ?? thinking,
     search: previous.search ?? search,
     status: 'pending',
@@ -980,7 +985,12 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
       let preparing = true
       let receivedContent = false
       try {
-        const prepared = await prepareFiles(sessionId, request, controller.signal)
+        const settings = useSettings.getState()
+        const openAi = settings.apiProvider === 'openai'
+        // OpenAI 兼容模式当前只发送文本，不调用 DeepSeek Files API 补传附件。
+        const prepared = openAi
+          ? request
+          : await prepareFiles(sessionId, request, controller.signal)
         preparing = false
         // 附件就绪后获取本轮信息；续写沿用原回答快照，重新生成的快照独立保存。
         const latestReminder = prepared.prefix
@@ -996,19 +1006,23 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           initial.thinking ?? false,
           latestReminder
         )
-        const events = streamMessage(
-          useSettings.getState().apiKey ?? '',
-          {
-            model: initial.model ?? MODEL,
-            system: SYSTEM_PROMPT,
-            messages,
-            thinking: { type: initial.thinking ? 'enabled' : 'disabled' },
-            safety_check: SAFETY_CHECK,
-            tools: serverTools(initial.search ?? false),
-            ...(titleRequests.has(controller) ? { title: { enabled: true } } : {}),
-          },
-          controller.signal
-        )
+        const requestBody: CreateMessageRequest = {
+          model: initial.model ?? currentModel(),
+          system: openAi ? OPENAI_SYSTEM_PROMPT : SYSTEM_PROMPT,
+          messages,
+          thinking: { type: initial.thinking ? 'enabled' : 'disabled' },
+          safety_check: SAFETY_CHECK,
+          tools: serverTools(initial.search ?? false),
+          ...(titleRequests.has(controller) ? { title: { enabled: true } } : {}),
+        }
+        const events = openAi
+          ? streamOpenAiMessage(
+              settings.openaiApiKey ?? '',
+              settings.openaiBaseUrl,
+              requestBody,
+              controller.signal
+            )
+          : streamMessage(settings.apiKey ?? '', requestBody, controller.signal)
         const blockIndexes = new Map<number, number>()
         for await (const event of events) {
           receivedContent ||= event.type === 'content_block_start'

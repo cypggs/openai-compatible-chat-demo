@@ -204,6 +204,69 @@
   color: var(--dsw-alias-state-error-primary);
 }
 
+.providerSettings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 4px;
+}
+
+.providerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.providerSelect {
+  min-width: 160px;
+}
+
+.configField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.configInput {
+  box-sizing: border-box;
+  width: 100%;
+  height: 42px;
+  padding: 0 14px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  outline: none;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 14px;
+
+  &:focus {
+    border-color: var(--dsw-alias-brand-primary);
+  }
+
+  &::placeholder {
+    color: var(--dsw-alias-label-caption);
+  }
+}
+
+.modelInputRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modelInputRow .configInput {
+  flex: 1;
+  min-width: 0;
+}
+
+.fetchModels {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .apiKey {
   display: flex;
   flex-direction: column;
